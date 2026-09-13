@@ -189,7 +189,6 @@ class MonsterTermApp(App):
 
     def on_mount(self) -> None:
         self.title = "MonsterTerm"
-        self.theme = "monospace"
         self._apply_theme()
 
     def _apply_theme(self) -> None:
