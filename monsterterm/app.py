@@ -174,6 +174,7 @@ class MonsterTermApp(App):
     def __init__(self):
         super().__init__()
         self.cfg = MonsterConfig.from_env()
+        self.dark = False
 
     def compose(self) -> ComposeResult:
         yield DashboardScreen(self.cfg)
