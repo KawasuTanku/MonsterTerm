@@ -2,41 +2,52 @@
 
 from __future__ import annotations
 
-import os
-from typing import Any
-
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, Container
 from textual.screen import Screen, ModalScreen
-from textual.widgets import Static, Button, DataTable, Header, Footer
+from textual.widgets import Static, Button
 from textual.binding import Binding
 
 from monsterterm import __version__
 from monsterterm.api import MonsterConfig, fetch_stats, fetch_inventory, fetch_summary, fetch_monthly
 
-THEME_PRESETS = {
-    "turbopascal": {
-        "bg": "#0000aa", "fg": "#ffffff", "accent": "#ffff55",
-        "secondary": "#000088", "surface": "#0000cc",
-    },
-    "midnight": {
-        "bg": "#11141d", "fg": "#c8d0dc", "accent": "#6cb6ff",
-        "secondary": "#161b27", "surface": "#22283a",
-    },
-    "nord": {
-        "bg": "#2e3440", "fg": "#d8dee9", "accent": "#88c0d0",
-        "secondary": "#3b4252", "surface": "#434c5e",
-    },
-    "gruvbox": {
-        "bg": "#282828", "fg": "#ebdbb2", "accent": "#fabd2f",
-        "secondary": "#32302f", "surface": "#504945",
-    },
-}
+
+class StyledStatic(Static):
+    """Static widget with retro Pascal styling (blue bg, white/yellow text)."""
+
+    def __init__(self, content: str = "", **kwargs):
+        text = Text()
+        text.append(" ")
+        text.append(content if content else " ", style="white on #0000aa")
+        text.append(" ")
+        super().__init__(text, **kwargs)
+
+    def update_content(self, content: str) -> None:
+        text = Text()
+        text.append(" ")
+        text.append(content, style="white on #0000aa")
+        text.append(" ")
+        self.update(text)
 
 
-def get_theme() -> dict[str, str]:
-    name = os.getenv("TANKUOS_THEME", "turbopascal")
-    return THEME_PRESETS.get(name, THEME_PRESETS["turbopascal"])
+class MenuButton(Button):
+    """Button styled for retro Pascal menubar."""
+
+    def __init__(self, label: str, **kwargs):
+        super().__init__(label, **kwargs)
+        self.styles.background = "#000088"
+        self.styles.color = "#ffff55"
+        self.styles.border = "none"
+
+
+class StatusStatic(Static):
+    """Status bar static (blue bg, yellow text)."""
+
+    def __init__(self, content: str = "", **kwargs):
+        text = Text()
+        text.append(content, style="#ffff55 on #000088")
+        super().__init__(text, **kwargs)
 
 
 class DashboardScreen(Screen):
@@ -53,30 +64,29 @@ class DashboardScreen(Screen):
     def __init__(self, cfg: MonsterConfig, **kwargs):
         super().__init__(**kwargs)
         self.cfg = cfg
-        self.theme = get_theme()
 
     def compose(self) -> ComposeResult:
         with Container(id="desktop"):
             with Horizontal(id="menubar"):
-                yield Button("MonsterTerm", id="menu-title")
-                yield Button("Dashboard", id="menu-dashboard")
-                yield Button("Inventory", id="menu-inventory")
-                yield Button("Reports", id="menu-reports")
-                yield Button("Help", id="menu-help")
+                yield StyledStatic("MonsterTerm", id="menu-title")
+                yield MenuButton("Dashboard", id="menu-dashboard", classes="menu-btn")
+                yield MenuButton("Inventory", id="menu-inventory", classes="menu-btn")
+                yield MenuButton("Reports", id="menu-reports", classes="menu-btn")
+                yield MenuButton("Help", id="menu-help", classes="menu-btn")
             with Container(id="workspace"):
-                yield Static("Loading...", id="content")
+                yield StyledStatic("Loading...", id="content")
             with Horizontal(id="statusbar"):
-                yield Static("D Dashboard", id="stat-dashboard")
-                yield Static("I Inventory", id="stat-inventory")
-                yield Static("R Reports", id="stat-reports")
-                yield Static("? Help", id="stat-help")
-                yield Static(f"v{__version__}", id="stat-version")
+                yield StatusStatic(" D Dashboard", id="stat-dashboard")
+                yield StatusStatic(" I Inventory", id="stat-inventory")
+                yield StatusStatic(" R Reports", id="stat-reports")
+                yield StatusStatic(" ? Help", id="stat-help")
+                yield StatusStatic(f"v{__version__} ", id="stat-version")
 
     def on_mount(self) -> None:
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", StyledStatic)
         stats = fetch_stats(self.cfg)
         inventory = fetch_inventory(self.cfg)
         summary = fetch_summary(self.cfg)
@@ -98,16 +108,16 @@ class DashboardScreen(Screen):
             low = [i for i in inventory if i.get("needsReorder")]
             lines.append(f"Inventory: {len(inventory)} items, {len(low)} low stock")
 
-        content.update("\n".join(lines) if lines else "No data available")
+        content.update_content("\n".join(lines) if lines else "No data available. Check MONSTER_URL and MONSTER_TOKEN.")
 
     def action_dashboard(self) -> None:
         self.refresh_data()
 
     def action_inventory(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", StyledStatic)
         inventory = fetch_inventory(self.cfg)
         if not inventory:
-            content.update("No inventory data")
+            content.update_content("No inventory data")
             return
         lines = ["┌─── Inventory ───────────────────────────┐"]
         for item in inventory[:20]:
@@ -116,13 +126,13 @@ class DashboardScreen(Screen):
             low = " LOW" if item.get("needsReorder") else ""
             lines.append(f"│ {name:<20} qty: {qty:>4}{low:<6} │")
         lines.append("└────────────────────────────────────────┘")
-        content.update("\n".join(lines))
+        content.update_content("\n".join(lines))
 
     def action_reports(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", StyledStatic)
         monthly = fetch_monthly(self.cfg)
         if not monthly:
-            content.update("No monthly data")
+            content.update_content("No monthly data")
             return
         lines = ["┌─── Monthly Report ──────────────────────┐"]
         for m in monthly[-6:]:
@@ -130,7 +140,7 @@ class DashboardScreen(Screen):
             sales = m.get("sales", 0)
             lines.append(f"│ {month:<10} sales: ${sales:>10,.2f}       │")
         lines.append("└────────────────────────────────────────┘")
-        content.update("\n".join(lines))
+        content.update_content("\n".join(lines))
 
     def action_help(self) -> None:
         self.app.push_screen(HelpScreen())
@@ -150,14 +160,9 @@ class DashboardScreen(Screen):
 class HelpScreen(ModalScreen):
     """Help overlay."""
 
-    CSS = """
-    Screen { background: $surface; align: center middle; }
-    #help-box { width: 60; height: auto; border: solid $accent; padding: 1; }
-    """
-
     def compose(self) -> ComposeResult:
         with Vertical(id="help-box"):
-            yield Static("MonsterTerm Help\n\nD - Dashboard view\nI - Inventory list\nR - Monthly reports\n? - This help\nQ - Quit\n\nPress any key to close")
+            yield StyledStatic("MonsterTerm Help\n\nD - Dashboard view\nI - Inventory list\nR - Monthly reports\n? - This help\nQ - Quit\n\nPress any key to close")
 
     def on_key(self, event) -> None:
         self.dismiss(None)
@@ -170,30 +175,66 @@ class MonsterTermApp(App):
     """Main MonsterTerm application."""
 
     CSS = """
-    #desktop { height: 100%; layout: vertical; }
-    #menubar { height: 1; background: $primary; padding: 0; }
-    #menubar Button { background: $primary; color: $accent; border: none;
-                      min-width: 8; height: 1; padding: 0; text-style: bold; }
-    #menubar Button:focus { background: $accent; color: $surface; }
-    #workspace { height: 1fr; padding: 1; }
-    #content { height: 100%; }
-    #statusbar { height: 1; background: $secondary; padding: 0; }
-    #statusbar Static { width: auto; color: $accent; padding: 0 1; }
-    #stat-version { dock: right; }
+    #desktop {
+        height: 1fr;
+        layout: vertical;
+        background: #0000aa;
+    }
+    #menubar {
+        height: 1;
+        background: #000088;
+    }
+    #menu-title {
+        width: auto;
+        color: #ffff55;
+        text-style: bold;
+    }
+    .menu-btn {
+        min-width: 8;
+        height: 1;
+        border: none;
+        padding: 0 1;
+        background: #000088;
+        color: #ffff55;
+    }
+    .menu-btn:focus {
+        background: #ffff55;
+        color: #0000aa;
+    }
+    #workspace {
+        height: 1fr;
+        padding: 1;
+        background: #0000aa;
+    }
+    #content {
+        height: auto;
+        color: #ffffff;
+    }
+    #statusbar {
+        height: 1;
+        background: #000088;
+    }
+    #statusbar Static {
+        width: auto;
+        color: #ffff55;
+    }
+    #stat-version {
+        dock: right;
+    }
+    #help-box {
+        width: 60;
+        height: auto;
+        padding: 1;
+        background: #0000cc;
+        color: #ffffff;
+        border: solid #ffff55;
+        align: center middle;
+    }
     """
 
     def __init__(self):
         super().__init__()
         self.cfg = MonsterConfig.from_env()
-        self.theme_preset = get_theme()
-
-    def on_mount(self) -> None:
-        self.title = "MonsterTerm"
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        t = self.theme_preset
-        self.styles.background = t["bg"]
 
     def compose(self) -> ComposeResult:
         yield DashboardScreen(self.cfg)
