@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, Container
 from textual.screen import Screen, ModalScreen
-from textual.widgets import Static, Button
+from textual.widgets import Static, Button, Log
 from textual.binding import Binding
 
 from monsterterm import __version__
@@ -28,79 +28,73 @@ class DashboardScreen(Screen):
         self.cfg = cfg
 
     def compose(self) -> ComposeResult:
-        with Container(id="desktop"):
-            with Horizontal(id="menubar"):
-                yield Static(" MonsterTerm", id="menu-title")
-                yield Button("Dashboard", id="menu-dashboard")
-                yield Button("Inventory", id="menu-inventory")
-                yield Button("Reports", id="menu-reports")
-                yield Button("Help", id="menu-help")
-            with Container(id="workspace"):
-                yield Static("Loading...", id="content")
-            with Horizontal(id="statusbar"):
-                yield Static(" D Dashboard", id="stat-dashboard")
-                yield Static(" I Inventory", id="stat-inventory")
-                yield Static(" R Reports", id="stat-reports")
-                yield Static(" ? Help", id="stat-help")
-                yield Static(f"v{__version__} ", id="stat-version")
+        yield Static("MonsterTerm", id="menu-title")
+        yield Button("Dashboard", id="menu-dashboard")
+        yield Button("Inventory", id="menu-inventory")
+        yield Button("Reports", id="menu-reports")
+        yield Button("Help", id="menu-help")
+        yield Log(id="content")
+        yield Static(" D Dashboard  I Inventory  R Reports  ? Help", id="statusbar")
+        yield Static(f"v{__version__}", id="stat-version")
 
     def on_mount(self) -> None:
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", Log)
+        content.clear()
         stats = fetch_stats(self.cfg)
         inventory = fetch_inventory(self.cfg)
         summary = fetch_summary(self.cfg)
 
-        lines = []
         if stats:
-            lines.append(" STATS")
-            lines.append(f"   Low stock items: {stats.get('low_stock_count', 'N/A')}")
-            lines.append(f"   Total stock value: ${stats.get('total_stock_value', 0):,.2f}")
-            lines.append(f"   Recent txns (7d): {stats.get('recent_transactions_7d', 'N/A')}")
-            lines.append("")
+            content.write(" STATS")
+            content.write(f"   Low stock items: {stats.get('low_stock_count', 'N/A')}")
+            content.write(f"   Total stock value: ${stats.get('total_stock_value', 0):,.2f}")
+            content.write(f"   Recent txns (7d): {stats.get('recent_transactions_7d', 'N/A')}")
+            content.write("")
         if summary:
-            lines.append(" SUMMARY")
-            lines.append(f"   Total sales: ${summary.get('total_sales', 0):,.2f}")
-            lines.append(f"   Total expenses: ${summary.get('total_expenses', 0):,.2f}")
-            lines.append(f"   Net profit: ${summary.get('net_profit', 0):,.2f}")
-            lines.append("")
+            content.write(" SUMMARY")
+            content.write(f"   Total sales: ${summary.get('total_sales', 0):,.2f}")
+            content.write(f"   Total expenses: ${summary.get('total_expenses', 0):,.2f}")
+            content.write(f"   Net profit: ${summary.get('net_profit', 0):,.2f}")
+            content.write("")
         if inventory:
             low = [i for i in inventory if i.get("needsReorder")]
-            lines.append(f"Inventory: {len(inventory)} items, {len(low)} low stock")
+            content.write(f"Inventory: {len(inventory)} items, {len(low)} low stock")
 
-        content.update("\n".join(lines) if lines else "No data available. Check MONSTER_URL and MONSTER_TOKEN.")
+        if not stats and not summary and not inventory:
+            content.write("No data available")
 
     def action_dashboard(self) -> None:
         self.refresh_data()
 
     def action_inventory(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", Log)
+        content.clear()
         inventory = fetch_inventory(self.cfg)
         if not inventory:
-            content.update("No inventory data")
+            content.write("No inventory data")
             return
-        lines = ["INVENTORY"]
+        content.write("INVENTORY")
         for item in inventory[:20]:
             qty = item.get("qtyOnHand", 0)
             name = item.get("name", "unknown")[:20]
             low = " LOW" if item.get("needsReorder") else ""
-            lines.append(f"  {name:<20} qty: {qty:>4}{low}")
-        content.update("\n".join(lines))
+            content.write(f"  {name:<20} qty: {qty:>4}{low}")
 
     def action_reports(self) -> None:
-        content = self.query_one("#content", Static)
+        content = self.query_one("#content", Log)
+        content.clear()
         monthly = fetch_monthly(self.cfg)
         if not monthly:
-            content.update("No monthly data")
+            content.write("No monthly data")
             return
-        lines = ["MONTHLY REPORT"]
+        content.write("MONTHLY REPORT")
         for m in monthly[-6:]:
             month = m.get("month", "?")[:7]
             sales = m.get("sales", 0)
-            lines.append(f"  {month:<10} sales: ${sales:>10,.2f}")
-        content.update("\n".join(lines))
+            content.write(f"  {month:<10} sales: ${sales:>10,.2f}")
 
     def action_help(self) -> None:
         self.app.push_screen(HelpScreen())
@@ -121,13 +115,9 @@ class HelpScreen(ModalScreen):
     """Help overlay."""
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="help-box"):
-            yield Static("MonsterTerm Help\n\nD - Dashboard view\nI - Inventory list\nR - Monthly reports\n? - This help\nQ - Quit\n\nPress any key to close")
+        yield Static("MonsterTerm Help\n\nD - Dashboard\nI - Inventory\nR - Reports\n? - Help\nQ - Quit\n\nPress any key to close")
 
     def on_key(self, event) -> None:
-        self.dismiss(None)
-
-    def on_click(self, event) -> None:
         self.dismiss(None)
 
 
@@ -135,40 +125,15 @@ class MonsterTermApp(App):
     """Main MonsterTerm application."""
 
     CSS = """
-    #desktop {
-        height: 1fr;
-        layout: vertical;
-    }
-    #menubar {
-        height: 1;
-    }
-    #menu-title {
-        width: auto;
-        text-style: bold;
-    }
-    #workspace {
-        height: 1fr;
-        padding: 1;
-    }
-    #content {
-        height: auto;
-    }
-    #statusbar {
-        height: 1;
-    }
-    #statusbar Static {
-        width: auto;
-    }
-    #stat-version {
-        dock: right;
-    }
-    #help-box {
-        width: 60;
-        height: auto;
-        padding: 1;
-        border: solid;
-        align: center middle;
-    }
+    #menu-title { height: 1; text-style: bold; padding: 0 1; }
+    #menu-dashboard { height: 1; border: none; padding: 0 1; }
+    #menu-inventory { height: 1; border: none; padding: 0 1; }
+    #menu-reports { height: 1; border: none; padding: 0 1; }
+    #menu-help { height: 1; border: none; padding: 0 1; }
+    #content { height: 1fr; padding: 1; }
+    #statusbar { height: 1; padding: 0 1; }
+    #stat-version { height: 1; dock: right; padding: 0 1; }
+    Screen { layout: vertical; }
     """
 
     def __init__(self):
