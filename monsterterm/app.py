@@ -11,43 +11,41 @@ from monsterterm import __version__
 from monsterterm.api import MonsterConfig, fetch_stats, fetch_inventory, fetch_summary, fetch_monthly
 
 
-def build_screen(title: str, sections: list[tuple[str, list[str]]]) -> Text:
+def build_screen(title: str, sections: list[tuple[str, list[str]]], term_width: int = 80) -> Text:
     """Build a full-screen Text with retro Pascal styling."""
     t = Text()
 
     # Menubar
     menubar = Text()
     menubar.append(" " + title, style="#ffff55 on #000088")
-    menubar.append(" " * max(1, 78 - len(title)), style="on #000088")
-    menubar.append(" Dashboard  Inventory  Reports  Help ", style="#ffff55 on #000088")
-    menubar.append(" " * 10, style="on #000088")
+    menubar.append(" " * max(1, term_width - len(title) - 1), style="on #000088")
     t.append_text(menubar)
     t.append("\n")
 
-    # Content area (45 lines)
+    # Content area
     line_count = 0
     for heading, items in sections:
         if heading:
             t.append(" " + heading, style="white on #0000aa")
-            t.append(" " * 79, style="on #0000aa")
+            t.append(" " * max(1, term_width - len(heading) - 1), style="on #0000aa")
             t.append("\n")
             line_count += 1
         for item in items:
             t.append("   " + item, style="white on #0000aa")
-            t.append(" " * max(1, 76 - len(item)), style="on #0000aa")
+            t.append(" " * max(1, term_width - len(item) - 3), style="on #0000aa")
             t.append("\n")
             line_count += 1
 
     # Fill remaining lines
     while line_count < 45:
-        t.append(" " * 80, style="on #0000aa")
+        t.append(" " * term_width, style="on #0000aa")
         t.append("\n")
         line_count += 1
 
     # Statusbar
     status = Text()
     status.append(" D Dashboard   I Inventory   R Reports   ? Help ", style="#ffff55 on #000088")
-    status.append(" " * 20, style="on #000088")
+    status.append(" " * max(1, term_width - 50 - len(__version__) - 2), style="on #000088")
     status.append(f"v{__version__} ", style="#ffff55 on #000088")
     t.append_text(status)
 
@@ -57,13 +55,29 @@ def build_screen(title: str, sections: list[tuple[str, list[str]]]) -> Text:
 class MonsterTermApp(App):
     """Main MonsterTerm application."""
 
+    BINDINGS = [
+        Binding("d", "dashboard", "Dashboard"),
+        Binding("i", "inventory", "Inventory"),
+        Binding("r", "reports", "Reports"),
+        Binding("?", "help", "Help"),
+    ]
+
     def compose(self) -> ComposeResult:
         yield Static("", id="screen")
+
+    def on_resize(self, event) -> None:
+        self.refresh_data()
 
     def on_mount(self) -> None:
         self.refresh_data()
 
-    def refresh_data(self) -> None:
+    def _term_width(self) -> int:
+        return self.size.width if self.size and self.size.width > 0 else 80
+
+    def _term_height(self) -> int:
+        return self.size.height if self.size and self.size.height > 0 else 49
+
+    def _build_dashboard(self) -> None:
         cfg = MonsterConfig.from_env()
         stats = fetch_stats(cfg)
         inventory = fetch_inventory(cfg)
@@ -90,49 +104,63 @@ class MonsterTermApp(App):
             sections = [("No data", [])]
 
         screen = self.query_one("#screen", Static)
-        screen.update(build_screen("MonsterTerm", sections))
+        screen.update(build_screen("MonsterTerm", sections, self._term_width()))
 
-    def on_key(self, event) -> None:
+    def _build_inventory(self) -> None:
         cfg = MonsterConfig.from_env()
-        key = event.key
-        if key == "d":
-            self.refresh_data()
-        elif key == "i":
-            inventory = fetch_inventory(cfg)
-            sections = []
-            if inventory:
-                items = []
-                for item in inventory[:20]:
-                    qty = item.get("qtyOnHand", 0)
-                    name = item.get("name", "unknown")[:20]
-                    low = " LOW" if item.get("needsReorder") else ""
-                    items.append(f"{name:<20} qty: {qty:>4}{low}")
-                sections = [("INVENTORY", items)]
-            else:
-                sections = [("No inventory data", [])]
-            screen = self.query_one("#screen", Static)
-            screen.update(build_screen("MonsterTerm - Inventory", sections))
-        elif key == "r":
-            monthly = fetch_monthly(cfg)
-            sections = []
-            if monthly:
-                items = []
-                for m in monthly[-6:]:
-                    month = m.get("month", "?")[:7]
-                    sales = m.get("sales", 0)
-                    items.append(f"{month:<10} sales: ${sales:>10,.2f}")
-                sections = [("MONTHLY REPORT", items)]
-            else:
-                sections = [("No monthly data", [])]
-            screen = self.query_one("#screen", Static)
-            screen.update(build_screen("MonsterTerm - Reports", sections))
-        elif key == "?":
-            sections = [("HELP", [
-                "D - Dashboard view",
-                "I - Inventory list",
-                "R - Monthly reports",
-                "? - This help",
-                "Q - Quit",
-            ])]
-            screen = self.query_one("#screen", Static)
-            screen.update(build_screen("MonsterTerm - Help", sections))
+        inventory = fetch_inventory(cfg)
+        sections = []
+        if inventory:
+            items = []
+            for item in inventory[:20]:
+                qty = item.get("qtyOnHand", 0)
+                name = item.get("name", "unknown")[:20]
+                low = " LOW" if item.get("needsReorder") else ""
+                items.append(f"{name:<20} qty: {qty:>4}{low}")
+            sections = [("INVENTORY", items)]
+        else:
+            sections = [("No inventory data", [])]
+        screen = self.query_one("#screen", Static)
+        screen.update(build_screen("MonsterTerm - Inventory", sections, self._term_width()))
+
+    def _build_reports(self) -> None:
+        cfg = MonsterConfig.from_env()
+        monthly = fetch_monthly(cfg)
+        sections = []
+        if monthly:
+            items = []
+            for m in monthly[-6:]:
+                month = m.get("month", "?")[:7]
+                sales = m.get("sales", 0)
+                items.append(f"{month:<10} sales: ${sales:>10,.2f}")
+            sections = [("MONTHLY REPORT", items)]
+        else:
+            sections = [("No monthly data", [])]
+        screen = self.query_one("#screen", Static)
+        screen.update(build_screen("MonsterTerm - Reports", sections, self._term_width()))
+
+    def _build_help(self) -> None:
+        sections = [("HELP", [
+            "D - Dashboard view",
+            "I - Inventory list",
+            "R - Monthly reports",
+            "? - This help",
+            "Q - Quit",
+        ])]
+        screen = self.query_one("#screen", Static)
+        screen.update(build_screen("MonsterTerm - Help", sections, self._term_width()))
+
+    def action_dashboard(self) -> None:
+        self._build_dashboard()
+
+    def action_inventory(self) -> None:
+        self._build_inventory()
+
+    def action_reports(self) -> None:
+        self._build_reports()
+
+    def action_help(self) -> None:
+        self._build_help()
+
+    def refresh_data(self) -> None:
+        self._build_dashboard()
