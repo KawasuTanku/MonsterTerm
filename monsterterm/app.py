@@ -45,7 +45,7 @@ def build_screen(title: str, sections: list[tuple[str, list[str]]], term_width: 
     # Statusbar
     status = Text()
     status.append(" D Dashboard   I Inventory   R Reports   ? Help ", style="#ffff55 on #000088")
-    status.append(" " * max(1, term_width - 50 - len(__version__) - 2), style="on #000088")
+    status.append(" " * max(1, term_width - 50 - len(__version__) - 1), style="on #000088")
     status.append(f"v{__version__} ", style="#ffff55 on #000088")
     t.append_text(status)
 
