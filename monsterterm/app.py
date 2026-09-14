@@ -2,221 +2,137 @@
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, Container
-from textual.screen import Screen, ModalScreen
-from textual.widgets import Static, Button
+from textual.widgets import Static
 from textual.binding import Binding
 
 from monsterterm import __version__
 from monsterterm.api import MonsterConfig, fetch_stats, fetch_inventory, fetch_summary, fetch_monthly
 
 
-class DashboardScreen(Screen):
-    """Main dashboard view."""
+def build_screen(title: str, sections: list[tuple[str, list[str]]]) -> Text:
+    """Build a full-screen Text with retro Pascal styling."""
+    t = Text()
 
-    BINDINGS = [
-        Binding("d", "dashboard", "Dashboard"),
-        Binding("i", "inventory", "Inventory"),
-        Binding("r", "reports", "Reports"),
-        Binding("q", "quit", "Quit"),
-        Binding("?", "help", "Help"),
-    ]
+    # Menubar
+    menubar = Text()
+    menubar.append(" " + title, style="#ffff55 on #000088")
+    menubar.append(" " * max(1, 78 - len(title)), style="on #000088")
+    menubar.append(" Dashboard  Inventory  Reports  Help ", style="#ffff55 on #000088")
+    menubar.append(" " * 10, style="on #000088")
+    t.append_text(menubar)
+    t.append("\n")
 
-    def __init__(self, cfg: MonsterConfig, **kwargs):
-        super().__init__(**kwargs)
-        self.cfg = cfg
+    # Content area (45 lines)
+    line_count = 0
+    for heading, items in sections:
+        if heading:
+            t.append(" " + heading, style="white on #0000aa")
+            t.append(" " * 79, style="on #0000aa")
+            t.append("\n")
+            line_count += 1
+        for item in items:
+            t.append("   " + item, style="white on #0000aa")
+            t.append(" " * max(1, 76 - len(item)), style="on #0000aa")
+            t.append("\n")
+            line_count += 1
 
-    def compose(self) -> ComposeResult:
-        with Container(id="desktop"):
-            with Horizontal(id="menubar"):
-                yield Static(" MonsterTerm", id="menu-title")
-                yield Button("Dashboard", id="menu-dashboard")
-                yield Button("Inventory", id="menu-inventory")
-                yield Button("Reports", id="menu-reports")
-                yield Button("Help", id="menu-help")
-            with Container(id="workspace"):
-                yield Static("Loading...", id="content")
-            with Horizontal(id="statusbar"):
-                yield Static(" D Dashboard", id="stat-dashboard")
-                yield Static(" I Inventory", id="stat-inventory")
-                yield Static(" R Reports", id="stat-reports")
-                yield Static(" ? Help", id="stat-help")
-                yield Static(f"v{__version__} ", id="stat-version")
+    # Fill remaining lines
+    while line_count < 45:
+        t.append(" " * 80, style="on #0000aa")
+        t.append("\n")
+        line_count += 1
 
-    def on_mount(self) -> None:
-        self.refresh_data()
+    # Statusbar
+    status = Text()
+    status.append(" D Dashboard   I Inventory   R Reports   ? Help ", style="#ffff55 on #000088")
+    status.append(" " * 20, style="on #000088")
+    status.append(f"v{__version__} ", style="#ffff55 on #000088")
+    t.append_text(status)
 
-    def refresh_data(self) -> None:
-        content = self.query_one("#content", Static)
-        stats = fetch_stats(self.cfg)
-        inventory = fetch_inventory(self.cfg)
-        summary = fetch_summary(self.cfg)
-
-        lines = []
-        if stats:
-            lines.append(" STATS")
-            lines.append(f"   Low stock items: {stats.get('low_stock_count', 'N/A')}")
-            lines.append(f"   Total stock value: ${stats.get('total_stock_value', 0):,.2f}")
-            lines.append(f"   Recent txns (7d): {stats.get('recent_transactions_7d', 'N/A')}")
-            lines.append("")
-        if summary:
-            lines.append(" SUMMARY")
-            lines.append(f"   Total sales: ${summary.get('total_sales', 0):,.2f}")
-            lines.append(f"   Total expenses: ${summary.get('total_expenses', 0):,.2f}")
-            lines.append(f"   Net profit: ${summary.get('net_profit', 0):,.2f}")
-            lines.append("")
-        if inventory:
-            low = [i for i in inventory if i.get("needsReorder")]
-            lines.append(f"Inventory: {len(inventory)} items, {len(low)} low stock")
-
-        content.update("\n".join(lines) if lines else "No data")
-
-    def action_dashboard(self) -> None:
-        self.refresh_data()
-
-    def action_inventory(self) -> None:
-        content = self.query_one("#content", Static)
-        inventory = fetch_inventory(self.cfg)
-        if not inventory:
-            content.update("No inventory data")
-            return
-        lines = ["INVENTORY"]
-        for item in inventory[:20]:
-            qty = item.get("qtyOnHand", 0)
-            name = item.get("name", "unknown")[:20]
-            low = " LOW" if item.get("needsReorder") else ""
-            lines.append(f"  {name:<20} qty: {qty:>4}{low}")
-        content.update("\n".join(lines))
-
-    def action_reports(self) -> None:
-        content = self.query_one("#content", Static)
-        monthly = fetch_monthly(self.cfg)
-        if not monthly:
-            content.update("No monthly data")
-            return
-        lines = ["MONTHLY REPORT"]
-        for m in monthly[-6:]:
-            month = m.get("month", "?")[:7]
-            sales = m.get("sales", 0)
-            lines.append(f"  {month:<10} sales: ${sales:>10,.2f}")
-        content.update("\n".join(lines))
-
-    def action_help(self) -> None:
-        self.app.push_screen(HelpScreen())
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn = event.button.id
-        if btn == "menu-dashboard":
-            self.action_dashboard()
-        elif btn == "menu-inventory":
-            self.action_inventory()
-        elif btn == "menu-reports":
-            self.action_reports()
-        elif btn == "menu-help":
-            self.action_help()
-
-
-class HelpScreen(ModalScreen):
-    """Help overlay."""
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="help-box"):
-            yield Static("MonsterTerm Help\n\nD - Dashboard view\nI - Inventory list\nR - Monthly reports\n? - This help\nQ - Quit\n\nPress any key to close")
-
-    def on_key(self, event) -> None:
-        self.dismiss(None)
-
-    def on_click(self, event) -> None:
-        self.dismiss(None)
+    return t
 
 
 class MonsterTermApp(App):
     """Main MonsterTerm application."""
 
-    CSS = """
-    #desktop {
-        height: 1fr;
-        layout: vertical;
-        background: #0000aa;
-    }
-    #menubar {
-        height: 1;
-        background: #000088;
-    }
-    #menu-title {
-        width: auto;
-        color: #ffff55;
-        text-style: bold;
-        padding: 0 1;
-    }
-    #menu-dashboard {
-        min-width: 8;
-        height: 1;
-        border: none;
-        padding: 0 1;
-        background: #000088;
-        color: #ffff55;
-    }
-    #menu-inventory {
-        min-width: 8;
-        height: 1;
-        border: none;
-        padding: 0 1;
-        background: #000088;
-        color: #ffff55;
-    }
-    #menu-reports {
-        min-width: 8;
-        height: 1;
-        border: none;
-        padding: 0 1;
-        background: #000088;
-        color: #ffff55;
-    }
-    #menu-help {
-        min-width: 8;
-        height: 1;
-        border: none;
-        padding: 0 1;
-        background: #000088;
-        color: #ffff55;
-    }
-    #workspace {
-        height: 1fr;
-        padding: 1;
-        background: #0000aa;
-    }
-    #content {
-        height: auto;
-        color: #ffffff;
-    }
-    #statusbar {
-        height: 1;
-        background: #000088;
-    }
-    #statusbar Static {
-        width: auto;
-        color: #ffff55;
-        padding: 0 1;
-    }
-    #stat-version {
-        dock: right;
-    }
-    #help-box {
-        width: 60;
-        height: auto;
-        padding: 1;
-        background: #0000cc;
-        color: #ffffff;
-        border: solid #ffff55;
-        align: center middle;
-    }
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.cfg = MonsterConfig.from_env()
-
     def compose(self) -> ComposeResult:
-        yield DashboardScreen(self.cfg)
+        yield Static("", id="screen")
+
+    def on_mount(self) -> None:
+        self.refresh_data()
+
+    def refresh_data(self) -> None:
+        cfg = MonsterConfig.from_env()
+        stats = fetch_stats(cfg)
+        inventory = fetch_inventory(cfg)
+        summary = fetch_summary(cfg)
+
+        sections = []
+        if stats:
+            sections.append(("STATS", [
+                f"Low stock items: {stats.get('low_stock_count', 'N/A')}",
+                f"Total stock value: ${stats.get('total_stock_value', 0):,.2f}",
+                f"Recent txns (7d): {stats.get('recent_transactions_7d', 'N/A')}",
+            ]))
+        if summary:
+            sections.append(("SUMMARY", [
+                f"Total sales: ${summary.get('total_sales', 0):,.2f}",
+                f"Total expenses: ${summary.get('total_expenses', 0):,.2f}",
+                f"Net profit: ${summary.get('net_profit', 0):,.2f}",
+            ]))
+        if inventory:
+            low = [i for i in inventory if i.get("needsReorder")]
+            sections.append(("", [f"Inventory: {len(inventory)} items, {len(low)} low stock"]))
+
+        if not sections:
+            sections = [("No data", [])]
+
+        screen = self.query_one("#screen", Static)
+        screen.update(build_screen("MonsterTerm", sections))
+
+    def on_key(self, event) -> None:
+        cfg = MonsterConfig.from_env()
+        key = event.key
+        if key == "d":
+            self.refresh_data()
+        elif key == "i":
+            inventory = fetch_inventory(cfg)
+            sections = []
+            if inventory:
+                items = []
+                for item in inventory[:20]:
+                    qty = item.get("qtyOnHand", 0)
+                    name = item.get("name", "unknown")[:20]
+                    low = " LOW" if item.get("needsReorder") else ""
+                    items.append(f"{name:<20} qty: {qty:>4}{low}")
+                sections = [("INVENTORY", items)]
+            else:
+                sections = [("No inventory data", [])]
+            screen = self.query_one("#screen", Static)
+            screen.update(build_screen("MonsterTerm - Inventory", sections))
+        elif key == "r":
+            monthly = fetch_monthly(cfg)
+            sections = []
+            if monthly:
+                items = []
+                for m in monthly[-6:]:
+                    month = m.get("month", "?")[:7]
+                    sales = m.get("sales", 0)
+                    items.append(f"{month:<10} sales: ${sales:>10,.2f}")
+                sections = [("MONTHLY REPORT", items)]
+            else:
+                sections = [("No monthly data", [])]
+            screen = self.query_one("#screen", Static)
+            screen.update(build_screen("MonsterTerm - Reports", sections))
+        elif key == "?":
+            sections = [("HELP", [
+                "D - Dashboard view",
+                "I - Inventory list",
+                "R - Monthly reports",
+                "? - This help",
+                "Q - Quit",
+            ])]
+            screen = self.query_one("#screen", Static)
+            screen.update(build_screen("MonsterTerm - Help", sections))
