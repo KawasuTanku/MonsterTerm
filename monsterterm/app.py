@@ -92,12 +92,12 @@ class MonsterTermApp(App):
             ]))
         if summary:
             sections.append(("SUMMARY", [
-                f"Total sales: ${summary.get('total_sales', 0):,.2f}",
-                f"Total expenses: ${summary.get('total_expenses', 0):,.2f}",
-                f"Net profit: ${summary.get('net_profit', 0):,.2f}",
+                f"Total sales: ${summary.get('revenue', 0):,.2f}",
+                f"Total expenses: ${summary.get('expenses', 0):,.2f}",
+                f"Net profit: ${summary.get('net', 0):,.2f}",
             ]))
         if inventory:
-            low = [i for i in inventory if i.get("needsReorder")]
+            low = [i for i in inventory if i.get("needs_reorder")]
             sections.append(("", [f"Inventory: {len(inventory)} items, {len(low)} low stock"]))
 
         if not sections:
@@ -113,9 +113,9 @@ class MonsterTermApp(App):
         if inventory:
             items = []
             for item in inventory[:20]:
-                qty = item.get("qtyOnHand", 0)
+                qty = item.get("qty_on_hand", 0)
                 name = item.get("name", "unknown")[:20]
-                low = " LOW" if item.get("needsReorder") else ""
+                low = " LOW" if item.get("needs_reorder") else ""
                 items.append(f"{name:<20} qty: {qty:>4}{low}")
             sections = [("INVENTORY", items)]
         else:
@@ -130,8 +130,8 @@ class MonsterTermApp(App):
         if monthly:
             items = []
             for m in monthly[-6:]:
-                month = m.get("month", "?")[:7]
-                sales = m.get("sales", 0)
+                month = m.get("period", "?")[:7]
+                sales = m.get("revenue", 0)
                 items.append(f"{month:<10} sales: ${sales:>10,.2f}")
             sections = [("MONTHLY REPORT", items)]
         else:
